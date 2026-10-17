@@ -43,6 +43,7 @@ COBJS-$(CONFIG_SDHC)		+= $(DRIVERS_SRC)/sdhc.o
 
 COBJS-$(CONFIG_SDCARD)		+= $(DRIVERS_SRC)/mci_media.o
 COBJS-$(CONFIG_SDCARD)		+= $(DRIVERS_SRC)/sdcard.o
+COBJS-$(CONFIG_SAMA7D65_CURIOSITY_SPLASH) += device/sama7d65/splash.o
 
 COBJS-$(CONFIG_NANDFLASH)	+= $(DRIVERS_SRC)/nandflash.o
 COBJS-$(CONFIG_USE_PMECC)	+= $(DRIVERS_SRC)/pmecc.o
@@ -118,4 +119,4 @@ COBJS-$(CONFIG_MMU)		+= $(DRIVERS_SRC)/mmu.o
 COBJS-$(CONFIG_XDMAC)	+= $(DRIVERS_SRC)/at91_xdmac.o
 COBJS-$(CONFIG_FAST_BOOT)	+= $(DRIVERS_SRC)/fast_boot_init.o
 COBJS-$(CONFIG_FAST_BOOT)	+= $(DRIVERS_SRC)/restore_sdcard.o
-COBJS-$(CONFIG_FAST_BOOT)	+= $(DRIVERS_SRC)/restore_nandflash.o 
+COBJS-$(CONFIG_FAST_BOOT)	+= $(DRIVERS_SRC)/restore_nandflash.o

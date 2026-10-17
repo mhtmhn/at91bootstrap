@@ -5,6 +5,15 @@
 menu "Zephyr Image Storage Setup"
 	depends on LOAD_ZEPHYR
 
+config SAMA7D65_CURIOSITY_SPLASH
+	bool "Early LVDS splash for SAMA7D65 Curiosity (non-Pro)"
+	depends on SAMA7D65 && SDCARD && !FAST_BOOT && !BACKUP_MODE && !SECURE
+	help
+	  Start the 1280x800 zero_gfx panel before SD loading. BASE uses a
+	  constant color without DMA; a compact indexed OVR1 logo/progress
+	  framebuffer occupies the final 64 KiB of DDR. The application must
+	  keep this range unused until its display driver takes over.
+
 config IMG_ADDRESS
 	string "Flash Offset for Zephyr Image"
 	depends on DATAFLASH || FLASH || NANDFLASH

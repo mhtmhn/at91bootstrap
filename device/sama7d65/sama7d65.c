@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 #include "backup.h"
+#include "boot_splash.h"
 #include "common.h"
 #include "flexcom.h"
 #include "twi.h"
@@ -1046,6 +1047,7 @@ void hw_init(void)
 
 	/* We need timers in the following steps */
 	timer_init();
+	boot_splash_power();
 #ifdef CONFIG_TWI
 	twi_init();
 #endif
@@ -1084,6 +1086,8 @@ void hw_init(void)
 	pmc_mck_cfg_set(3, BOARD_PRESCALER_MCK3,
 			AT91C_MCR_DIV | AT91C_MCR_CSS | AT91C_MCR_EN);
 
+	boot_splash_early_init();
+
 	/* Configure & Enable GPU PLL */
 	imgpll_config.mul = 43; /* (43 + 1) * 24 = 1056 */
 	imgpll_config.div = 3; 
@@ -1116,8 +1120,10 @@ void hw_init(void)
 	console_printf("UMCTL2: umctl2_config_state_init.\n");
 	if (umctl2_init(&umctl2_config)) {
 		console_printf("UMCTL2: Error initializing.\n");
-	} else if (!backup_resume()) {
-		console_printf("UMCTL2: Initialization complete.\n");
+	} else {
+		boot_splash_show();
+		if (!backup_resume())
+			console_printf("UMCTL2: Initialization complete.\n");
 	}
 
 	at91_init_can_message_ram();

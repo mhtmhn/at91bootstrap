@@ -6,6 +6,7 @@
 #include "common.h"
 #include "hardware.h"
 #include "board.h"
+#include "boot_splash.h"
 
 #include "string.h"
 
@@ -27,6 +28,11 @@ static int sdcard_loadimage(char *filename, BYTE *dest)
 	UINT	byte_read;
 	FRESULT	fret;
 	int	ret;
+#ifdef CONFIG_SAMA7D65_CURIOSITY_SPLASH
+	unsigned int total, copied = 0;
+	unsigned int limit = boot_splash_load_limit();
+	unsigned int address = (unsigned int)dest;
+#endif
 
 	fret = f_open(&file, filename, FA_OPEN_EXISTING | FA_READ);
 	if (fret != FR_OK) {
@@ -35,6 +41,31 @@ static int sdcard_loadimage(char *filename, BYTE *dest)
 		goto open_fail;
 	}
 
+#ifdef CONFIG_SAMA7D65_CURIOSITY_SPLASH
+	total = f_size(&file);
+	if (!total || address < 0x60000000U || address >= limit ||
+	    total > limit - address) {
+		dbg_info("*** FATFS: image size %u exceeds usable DDR or is empty\n", total);
+		ret = -1;
+		goto read_fail;
+	}
+	dbg_info("SD/MMC: copying %u bytes (limit %x)\n", total, limit);
+	boot_splash_progress(0, total);
+	while (copied < total) {
+		byte_to_read = min(CHUNK_SIZE, total - copied);
+		byte_read = 0;
+		fret = f_read(&file, dest, byte_to_read, &byte_read);
+		if (fret != FR_OK || byte_read != byte_to_read) {
+			dbg_info("*** FATFS: read failed/short at %u bytes\n", copied);
+			ret = -1;
+			goto read_fail;
+		}
+		dest += byte_read;
+		copied += byte_read;
+		/* Hold the final pixel until close and unmount both succeed. */
+		boot_splash_progress(copied == total ? copied - 1 : copied, total);
+	}
+#else
 	do {
 		byte_read = 0;
 		fret = f_read(&file, (void *)(dest), byte_to_read, &byte_read);
@@ -46,10 +77,17 @@ static int sdcard_loadimage(char *filename, BYTE *dest)
 		 ret = -1;
 		goto read_fail;
 	}
+#endif
 	ret = 0;
 
 read_fail:
 	fret = f_close(&file);
+#ifdef CONFIG_SAMA7D65_CURIOSITY_SPLASH
+	if (fret != FR_OK) {
+		dbg_info("*** FATFS: f_close: error\n");
+		ret = -1;
+	}
+#endif
 
 open_fail:
 	return ret;
@@ -134,6 +172,7 @@ int load_sdcard(struct image_info *image)
 	fret = f_mount(0, &fs);
 	if (fret != FR_OK) {
 		dbg_info("*** FATFS: f_mount mount error **\n");
+		boot_splash_error();
 		return -1;
 	}
 
@@ -143,6 +182,7 @@ int load_sdcard(struct image_info *image)
 	ret = sdcard_loadimage(image->filename, image->dest);
 	if (ret) {
 		(void)f_mount(0, NULL);
+		boot_splash_error();
 		return ret;
 	}
 
@@ -184,8 +224,10 @@ int load_sdcard(struct image_info *image)
 	fret = f_mount(0, NULL);
 	if (fret != FR_OK) {
 		dbg_info("*** FATFS: f_mount umount error **\n");
+		boot_splash_error();
 		return -1;
 	}
+	boot_splash_progress(1, 1);
 
 	return 0;
 }
