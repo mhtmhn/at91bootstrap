@@ -49,12 +49,16 @@ class Firmware:
         self.mmio = []
         self.pins = []
         self.uc.mem_write(PMC + 0xec, struct.pack('<I', 0 if failure == 'pll' else 128))
+        if failure == 'lvds':
+            self.uc.mem_write(LCD + 0x800c, struct.pack('<I', 1))
         stubs = {'dbg_printf': self.noop, 'udelay': self.delay,
                  'pmc_enable_periph_clock': self.noop,
                  'pio_set_gpio_output': self.pin, 'pio_set_value': self.pin,
                  'at91_sdhc_hw_init': self.noop, 'f_mount': self.mount,
                  'f_open': self.open, 'f_read': self.read, 'f_close': self.close}
-        self.stubs = {self.symbols[name]: callback for name, callback in stubs.items()}
+        # Unused GPIO helpers may disappear under linker garbage collection.
+        self.stubs = {self.symbols[name]: callback for name, callback in stubs.items()
+                      if name in self.symbols}
         self.uc.hook_add(UC_HOOK_CODE, self.code)
         self.uc.hook_add(UC_HOOK_MEM_WRITE, self.write, begin=LCD, end=LCD + 0xffff)
 
@@ -77,7 +81,7 @@ class Firmware:
 
     def write(self, uc, access, address, size, value, _):
         self.mmio.append((address - LCD, value))
-        if address == LCD + 0x20:
+        if address == LCD + 0x20 and self.failure != 'lcdc':
             status = self.word(LCD + 0x28)
             self.setword(LCD + 0x28, status | (value & 7))
 
@@ -88,6 +92,7 @@ class Firmware:
         self.delays += 1
 
     def pin(self, pin, value, *args):
+        assert pin != 46, 'Firmware must leave USB-powered backlight PB14 untouched'
         self.pins.append((pin, value))
 
     def mount(self, *args):
@@ -140,7 +145,7 @@ def main():
     assert firmware.word(firmware.symbols['display_ready']) == 1
     assert firmware.word(LCD + 0x88) == 0x0a0c18
     assert firmware.word(LCD + 0x8c) & 1 == 0
-    assert firmware.pins[-1] == (46, 1)  # PB14 backlight
+    assert firmware.pins == [(50, 1)]  # Only PB18 panel power; no PB14 control.
     assert firmware.call('boot_splash_load_limit') == FRAME
     firmware.call('boot_splash_show')
     assert firmware.word(firmware.symbols['framebuffer']) == FRAME
@@ -152,6 +157,7 @@ def main():
     palette_start = next(i for i, (offset, value) in enumerate(firmware.mmio) if offset == 0xb00)
     clut_enable = next(i for i, (offset, value) in enumerate(firmware.mmio) if offset == 0x180 and value == 0x201)
     assert palette_start < clut_enable
+    assert not any(offset == 0x18 for offset, value in firmware.mmio)  # No LCD PWM setup.
     firmware.call('boot_splash_progress', 3, 5)
     assert firmware.word(firmware.symbols['last_width']) == 192
     w, h = layout['overlay_size']
@@ -193,14 +199,19 @@ def main():
         else:
             assert (1, 1) not in tested.progress
         cases.append(dict(bytes=size, failure=failure, destination=hex(destination), reads=len(tested.reads), expected_success=success))
-    timeout = Firmware(args.elf, failure='pll')
-    timeout.call('boot_splash_early_init')
-    assert timeout.delays == 10000 and timeout.word(timeout.symbols['display_ready']) == 0
+    for failure in ('pll', 'lvds', 'lcdc'):
+        timeout = Firmware(args.elf, failure=failure)
+        timeout.call('boot_splash_power')
+        timeout.call('boot_splash_early_init')
+        assert timeout.delays == 10000 and timeout.word(timeout.symbols['display_ready']) == 0
+        assert timeout.pins == [(50, 1)]
     result = dict(arm_decode_matches_preview=True, base_dma_disabled=True,
                   palette_written_before_clut_enable=True, progress_large_totals_pass=True,
-                  pll_timeout_returns=True, sd_cases=cases)
+                  pb14_untouched=True, lcd_pwm_configuration_untouched=True,
+                  pll_timeout_returns=True, lvds_timeout_returns=True,
+                  lcdc_timeout_returns=True, sd_cases=cases)
     (output / 'verification.json').write_text(json.dumps(result, indent=2) + '\n')
-    print(f'PASS: ARM splash decode/render, wide progress, bounded PLL timeout, {len(cases)} SD load cases')
+    print(f'PASS: ARM splash decode/render, wide progress, PB14 untouched, three display timeouts, {len(cases)} SD load cases')
 
 
 if __name__ == '__main__':

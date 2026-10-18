@@ -1,12 +1,14 @@
 # Session handoff: early SAMA7D65 Curiosity splash
 
-Last updated: 2026-10-16. Workspace: `C:/Git/at91bootstrap`, Windows PowerShell.
+Last updated: 2026-10-19. Workspace: `C:/Git/at91bootstrap`, Windows PowerShell.
 
 ## Current result and user direction
 
 The first-pass early LVDS splash and SD-copy progress implementation is built. The user tested the delivered binary on their board and replied **"works great!"**. Treat this as a successful first-pass board test. No serial log, measured startup times, exact tested application file size, or detailed display-handoff observations were supplied.
 
-The latest user request is to document the state so a fresh session can continue later, **without committing**. Documentation is saved; no further implementation, rebuild, flash, commit, or timing instrumentation is requested at this point. The broader goal remains **get the display up as fast as possible**. Measuring power-on to first background and first logo was suggested as a useful next step, but has not been authorized as a new task or performed.
+On 2026-10-19, the user reported a brief backlight dip when boot.bin starts and explained that USB power already keeps the backlight on. They requested removal of all splash backlight control. The three PB14 calls (startup low, success high, failure low) and unused LCDCFG6 PWM setup have been removed. **Bootstrap now leaves PB14 untouched**, including display failures. PB18 panel power and display/SD-copy behavior remain in place. The updated binary is built and verified in simulation; the user's earlier "works great!" applies to the prior binary, and the new backlight revision awaits board confirmation.
+
+The broader goal remains **get the display up as fast as possible**. No timing instrumentation was performed. The user subsequently requested committing the backlight revision in the same style as the prior splash commit, without a co-author trailer; this handoff is included in that commit. Measuring power-on to first background and first logo remains a possible next step when requested.
 
 Read this file first, then the **Authorized first-pass implementation and board-test binary** section of [findings.md](findings.md). Earlier sections in findings.md preserve research estimates and superseded layouts; use the final implementation section for current dimensions and memory use.
 
@@ -14,7 +16,7 @@ Read this file first, then the **Authorized first-pass implementation and board-
 
 - **SAMA7D65 Curiosity NON-Pro**, `configs/sama7d65_curiositysd1_zephyr_defconfig`, SDHC1, Zephyr image load/jump address **0x60000000**. Do not substitute the Curiosity Pro configuration.
 - Reference application: `C:/Git/zephyr-mchp-workspace/app/zero_gfx`. Its Zephyr sources/binary were not changed or rebuilt by this task.
-- 1280x800 LVDS panel, 72,403,200 Hz pixel clock; horizontal sync/front/back 32/48/80, vertical 6/16/16; VESA mapping, unbalanced, 24-bit output. Panel power PB18, backlight PB14 as GPIO.
+- 1280x800 LVDS panel, 72,403,200 Hz pixel clock; horizontal sync/front/back 32/48/80, vertical 6/16/16; VESA mapping, unbalanced, 24-bit output. Panel power PB18. Backlight PB14 is left in its existing USB-power state; do not reintroduce GPIO/PWM backlight control into the splash.
 - Full-screen BASE default color **0x0A0C18**, **BASE DMA disabled**; HEO disabled. Only OVR1 scans out a compact framebuffer.
 - Source logo: `C:/Users/I41690/Pictures/image_271.png` (426x149). Crop box **[28,14,394,135)** yields **366x121**, with one source pixel outside the white artwork. Dark background is flattened to #0A0C18 while preserving white edge coverage.
 - Centered OVR1 canvas **366x152 at (457,324)**; rounded progress bar **320x6 at (480,469)**, 24 pixels below the logo, 3-pixel radius. One bottom padding row meets the even-dimension requirement.
@@ -33,22 +35,24 @@ The local zero_gfx map had `_image_ram_end` **0x62E9C000**, below the splash buf
 
 ## Delivered artifacts and measurements
 
-Known working ROM image: **`build/curiosity_zephyr_splash/binaries/boot.bin`**. This is the SAM-BA-generated **Non-Secure ROM PTI** file, not the adjacent raw .bin and not a rebuilt Zephyr application.
+Current rebuilt ROM image: **`build/curiosity_zephyr_splash/binaries/boot.bin`** (2026-10-19 backlight revision, awaiting board confirmation). This is the SAM-BA-generated **Non-Secure ROM PTI** file, not the adjacent raw .bin and not a rebuilt Zephyr application.
 
-SHA256 of the user-tested delivered artifact (rechecked while documenting):
+SHA256 of the current backlight revision:
 
 ```text
-B5B7BFA6843A7F00DB5EDD7DE65D8E7DFD31F6D33F494D15CEAF9279F815275B
+76AC25F58FCE0FB2094987CBE51C24F8A795E6EE615CE32E67A3C3992DAB079C
 ```
 
 | Measurement | Bytes |
 | --- | ---: |
-| Raw bootstrap / `_romsize` | 38,573 |
-| Code/data/BSS SRAM span / `_sramsize` | 39,604 |
-| Remaining below configured 64 KiB span limit | 25,932 |
-| Physical SRAM above `_ebss=0x00109AB4` | 91,468 |
-| Remainder after assumed 8 KiB stack reserve | 83,276 |
-| Wrapped `boot.bin` | 38,656 |
+| Raw bootstrap / `_romsize` | 38,457 |
+| Code/data/BSS SRAM span / `_sramsize` | 39,492 |
+| Remaining below configured 64 KiB span limit | 26,044 |
+| Physical SRAM above `_ebss=0x00109A44` | 91,580 |
+| Remainder after assumed 8 KiB stack reserve | 83,388 |
+| Wrapped `boot.bin` | 38,544 |
+
+The earlier board-tested binary is preserved at **`build/curiosity_zephyr_splash/archive/2026-10-16-board-tested/boot.bin`**, with SHA256 `B5B7BFA6843A7F00DB5EDD7DE65D8E7DFD31F6D33F494D15CEAF9279F815275B` and its original metrics.json. That version deliberately toggles PB14 and has the reported startup dip; keep it as a reference, not the current fix.
 
 The 8 KiB stack reserve is an estimate, not a measured high-water mark. Compiler stack reports from the initial compile give individual frames: show 40 bytes, progress 24 bytes, draw_bar 48 bytes, load_sdcard 1128 bytes; call chains add to these.
 
@@ -65,7 +69,7 @@ SD/MMC: Done to load image
 
 ## Source and working-tree state
 
-Branch **master**, base HEAD **258f00614d92dbc71090e59f863dfe13222bf5ca**. All task edits remain uncommitted and unstaged. Preserve them; do not reset/clean the workspace to start a fresh session.
+At the 2026-10-19 revisit, the workspace was already clean on branch **a7d65_curiosity_boot_splash**, HEAD **ef6f64c23c4959733f170b274a0ed7c899b6928c**. The prior implementation/documentation is tracked there. This session did not create that commit or branch. The backlight revision modifies only splash.c, verify_splash.py and the two documentation files and is committed at the user's subsequent request under **"Preserve SAMA7D65 backlight during splash startup"**. Use git log for its hash.
 
 | File | Responsibility |
 | --- | --- |
@@ -82,7 +86,7 @@ Branch **master**, base HEAD **258f00614d92dbc71090e59f863dfe13222bf5ca**. All t
 | `scripts/verify_splash.py` (new) | Runs linked ARM code with mocked FatFs/MMIO in Unicorn |
 | `findings.md`, `SESSION_STATE.md` (new) | Research, implementation record and handoff |
 
-Generated `.config` and `config/at91bootstrap-config/` are ignored. No Git commit, staging, or flashing action was performed by the assistant. The physical board test was performed by the user.
+The table above records the implementation's files; entries marked "new" were additions in the original session and are now tracked. Generated `.config` and `config/at91bootstrap-config/` are ignored. The backlight revision is committed as requested, without a co-author trailer. No flashing action was performed by the assistant. The physical board test was performed by the user.
 
 ## Rebuild and verification
 
@@ -108,7 +112,7 @@ python scripts/make_splash.py C:/Users/I41690/Pictures/image_271.png
 
 The build validates the 64 KiB SRAM span, SAM-BA PTI layout, raw payload, and both SHA256 digests without contacting a board. Binary hashes can change on rebuild because the build embeds date/time. Do not claim a rebuilt artifact is byte-identical to the user-tested file without checking.
 
-The final compiled ARM instructions passed pixel-for-pixel preview comparison, BASE DMA off, palette-before-CLUT-enable checks, centered registers, wide progress inputs and bounded PLL timeout. **16 mocked SD cases** passed: 8 MiB, partial final chunk, actual local 10.40 MiB length, 64 MiB, exact DDR limit, rejection boundaries, and mount/open/read/short-read/close/unmount errors. These mock checks do not model real panel timing or SD-controller electrical behavior. User board success now adds real first-pass evidence.
+The current compiled ARM instructions passed pixel-for-pixel preview comparison, BASE DMA off, palette-before-CLUT-enable checks, centered registers, wide progress inputs, and bounded PLL/LVDS/LCDC timeouts. Verification asserts that the only splash GPIO action is PB18 high and rejects any PB14 GPIO call; it also checks that LCDCFG6 PWM configuration is untouched. **16 mocked SD cases** passed: 8 MiB, partial final chunk, actual local 10.40 MiB length, 64 MiB, exact DDR limit, rejection boundaries, and mount/open/read/short-read/close/unmount errors. These mock checks do not model real panel timing or SD-controller electrical behavior. The earlier user board success adds first-pass evidence; this backlight revision still needs a board test.
 
 Known build details: two existing unrelated Kconfig warnings (prompt whitespace and empty help) remain; no new compiler warnings. Do not pass `-fstack-usage` through `EXTRA_CC_ARGS`: this Makefile also forwards it to raw ld, causing `-f may not be used without -shared`. Existing .su files came from the initial compile; current build script does not inject that option. The script must use the real versioned output name; overriding AT91BOOTSTRAP with a generic at91bootstrap.bin previously caused a self-referential symlink issue.
 

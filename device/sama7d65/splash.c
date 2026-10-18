@@ -25,7 +25,6 @@
 #define LCDCFG3 0x0c
 #define LCDCFG4 0x10
 #define LCDCFG5 0x14
-#define LCDCFG6 0x18
 #define LCDEN 0x20
 #define LCDSR 0x28
 #define LCDIDR 0x30
@@ -92,7 +91,7 @@ unsigned int boot_splash_load_limit(void)
 void boot_splash_power(void)
 {
 	pmc_enable_periph_clock(AT91C_ID_PIOB, PMC_PERIPH_CLK_DIVIDER_NA);
-	pio_set_gpio_output(AT91C_PIN_PB(14), 0);
+	/* USB power already keeps the backlight on; leave PB14 untouched. */
 	pio_set_gpio_output(AT91C_PIN_PB(18), 1);
 }
 
@@ -126,8 +125,7 @@ void boot_splash_early_init(void)
 	writel(~0U, LCDC + BASEIDR);
 	writel(~0U, LCDC + OVR1IDR);
 	writel(~0U, LCDC + HEOIDR);
-	if (lcd_config(LCDCFG0, 3) || /* CLKPOL=1, bypass; slow PWM source */
-	    lcd_config(LCDCFG6, (255U << 8) | (1U << 4)) ||
+	if (lcd_config(LCDCFG0, 3) || /* CLKPOL=1, pixel divider bypass */
 	    lcd_config(LCDCFG1, 31U | (5U << 16)) ||
 	    lcd_config(LCDCFG2, 15U | (15U << 16)) ||
 	    lcd_config(LCDCFG3, 47U | (79U << 16)) ||
@@ -158,11 +156,9 @@ void boot_splash_early_init(void)
 	if (wait_bits(LCDC + LCDSR, LCD_SIP | (1U << 5), 0))
 		goto failed;
 	display_ready = 1;
-	pio_set_value(AT91C_PIN_PB(14), 1);
 	dbg_info("Splash: background on, BASE DMA off\n");
 	return;
 failed:
-	pio_set_value(AT91C_PIN_PB(14), 0);
 	display_ready = 0;
 	dbg_info("Splash: display timeout; continuing boot\n");
 }

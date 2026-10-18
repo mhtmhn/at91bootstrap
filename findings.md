@@ -2,7 +2,7 @@
 
 Research date: 2026-10-16. Target: `configs/sama7d65_curiositysd1_zephyr_defconfig`, the non-Pro Curiosity board. Reference: `C:/Git/zephyr-mchp-workspace/app/zero_gfx`. The original research and unchanged baseline build are retained below. A first-pass display/SD-loader implementation was subsequently authorized and built; see the final section for current measurements and test instructions. LCDC DMA cannot access general SRAM; the logo framebuffer resides in DDR.
 
-**Current status:** the user tested the delivered first-pass boot.bin on their board and reported **"works great!"**. The implementation is working and remains uncommitted. See [SESSION_STATE.md](SESSION_STATE.md) for the fresh-session handoff, tool paths, source inventory, current artifact/hash, validation scope and remaining measurements.
+**Current status (2026-10-19):** the user tested the first-pass boot.bin on their board and reported **"works great!"**, then reported a brief backlight dip at boot.bin startup. USB power already keeps the backlight on. At their request, all splash PB14 control and unused LCD backlight PWM setup have now been removed; a new binary is built and verified, awaiting board confirmation. The backlight revision is committed at their subsequent request under "Preserve SAMA7D65 backlight during splash startup", without a co-author trailer. See [SESSION_STATE.md](SESSION_STATE.md) for the current artifact/hash and workspace state; the original research and first-pass measurements below are retained as history.
 
 ## Objective and panel
 
@@ -10,7 +10,7 @@ Bring the display up as early as possible, then show progress while copying a la
 
 ## Earliest initialization
 
-Assert panel power early so its settling time can overlap clock setup. Configure LVDSPLL, LCDC/LVDSC peripheral clocks, timing, BASE default background and OVR1 before starting scanout. Start the pipeline and enable the backlight in the panel's required power-sequence order. Then continue DDR training, SD initialization and copying.
+Assert panel power early so its settling time can overlap clock setup. Configure LVDSPLL, LCDC/LVDSC peripheral clocks, timing, BASE default background and OVR1 before starting scanout. Start the pipeline, then continue DDR training, SD initialization and copying. As of the 2026-10-19 user correction, USB power keeps the backlight on and Bootstrap leaves PB14 untouched.
 
 The local official Zephyr SAMA7D6 clock table assigns LCDC (ID 56) and LVDSC (ID 104) to MCK3; this is now also confirmed by datasheet page 63, Table 14.1. In Bootstrap, the existing earliest sensible insertion is after DDRPLL and MCK3 setup inside `hw_init()`, before DDR memory training. DDRPLL must be running, but DDR memory need not yet be initialized for a default-color display. Operation before training still needs hardware validation. A logo must wait for DDR training: datasheet pages 64-66, Tables 14.4/14.5/14.8, show LCDC connected only to UDDRC_P3, with no SRAM_P0 or SRAM_P1 path.
 
@@ -152,7 +152,7 @@ At the selected **366-pixel width**, 4-bit indexed can reach **358 pixels high (
 
 ### Startup ordering and progress behavior
 
-Panel power PB18 is asserted after timer initialization, with backlight PB14 held low. After DDRPLL/MCK3 are running, LVDSPLL and the timing engine start with BASE default color before DDR training. The PLL uses the reference 24 MHz crystal, MUL field 41, FRACR 986500, DIVPMC field 1, and the reference startup setting 6. Background output/backlight starts after CLKEN, SYNCEN, DISPEN and SDEN status checks. The logo is decoded and OVR1 DMA enabled immediately after successful DDR initialization, before SD initialization, PMIC/post-init work and Zephyr copying. There are no deliberate animation delays or an additional splash file read from SD.
+Panel power PB18 is asserted after timer initialization. The original first pass drove PB14 low here, high after display startup, and low on a display error; the 2026-10-19 revision removes all three calls because USB power already keeps the backlight on. PB14 is now untouched and the unused LCDCFG6 PWM setup is removed. After DDRPLL/MCK3 are running, LVDSPLL and the timing engine start with BASE default color before DDR training. The PLL uses the reference 24 MHz crystal, MUL field 41, FRACR 986500, DIVPMC field 1, and the reference startup setting 6. Background output starts after CLKEN, SYNCEN, DISPEN and SDEN status checks. The logo is decoded and OVR1 DMA enabled immediately after successful DDR initialization, before SD initialization, PMIC/post-init work and Zephyr copying. There are no deliberate animation delays or an additional splash file read from SD.
 
 Datasheet **Table 48.10, page 1297**, confirms **p0 in the low nibble, p1 in the high nibble**; the earlier provisional research packing is superseded. Palette registers are written with CLUTEN=0 and GAM=0 before enabling 4-bit mode. CPU caches are disabled in this target configuration; memory writes are ordered with DSB before enabling/updating scanout. Every new hardware wait is bounded to 100 ms and a display failure logs the cause and lets normal boot continue. These waits normally return as soon as status is ready; 100 ms is a failure timeout, not a startup delay.
 
@@ -177,7 +177,7 @@ Compiler-generated stack reports from the first compile show `boot_splash_show` 
 ### Artifacts, checks and board test
 
 - **Board-test image:** `build/curiosity_zephyr_splash/binaries/boot.bin`. This is the official SAM-BA-generated Non-Secure ROM PTI image. Use this wrapped file as boot.bin, not the neighboring raw bootstrap .bin.
-- Final boot.bin SHA256: `B5B7BFA6843A7F00DB5EDD7DE65D8E7DFD31F6D33F494D15CEAF9279F815275B` (also recorded by the build in metrics.json).
+- Original board-tested boot.bin SHA256: `B5B7BFA6843A7F00DB5EDD7DE65D8E7DFD31F6D33F494D15CEAF9279F815275B`. That file is now archived in `build/curiosity_zephyr_splash/archive/2026-10-16-board-tested/boot.bin`; the current build/hash are listed below.
 - `binaries/sama7d65-sdcardboot-zephyr-4.0.14-rc3.elf` and `.map`, `build.config`, `build.log`, `metrics.json`.
 - Visual previews: `splash-0.png`, `splash-60.png`, `splash-100.png`, `logo-cropped.png`, and `splash-layout.json`.
 - ARM execution checks: `verification.json`.
@@ -189,4 +189,23 @@ The compiled ARM splash decoder and progress renderer match the preview pixels e
 
 For testing, place **boot.bin and your existing zephyr.bin in the FAT SD card root**, use the requested non-Pro board's SD1 boot slot/boot selection, and capture the usual serial console. Expect `Splash: background on, BASE DMA off`, then `Splash: logo on, framebuffer 9fff0000 (27816 bytes)`, then the SD byte count and final load message. A clock/timing failure reports a display timeout and still attempts normal boot. No board was flashed or connected by this task.
 
-The user has now confirmed a successful first-pass physical board test. Time to background, time to logo, minimum panel power-to-backlight timing, and detailed Zephyr takeover/flicker behavior remain unmeasured. The supplied binary starts each display stage at the earliest verified dependency point, but no absolute millisecond claim is made until measured on hardware. The latest request was to save session state without committing; only documentation was changed during that handoff turn.
+The user has confirmed a successful first-pass physical board test. Time to background, time to logo, and detailed Zephyr takeover/flicker behavior remain unmeasured. The supplied binary starts each display stage at the earliest verified dependency point, but no absolute millisecond claim is made until measured on hardware.
+
+## 2026-10-19: preserve the USB-powered backlight
+
+The user observed a short backlight-off interval when boot.bin starts. The source confirmed explicit PB14 low/high/low GPIO calls in `boot_splash_power`, successful display initialization, and the failure path. The user requested removal of all these instances because the backlight is already on via USB power.
+
+Removed all three calls, along with the unused LCDCFG6 PWM configuration and register definition. PB18 panel power remains enabled. No other application's code was changed. The remaining PB14 pinmux definitions in the general SAMA7D65 platform file belong to alternate FLEXCOM2 console/TWI and QSPI configurations; none is selected by the requested console 19 / FLEXCOM10 / SDHC1 defconfig, so those unrelated configurations are retained.
+
+The current image is **`build/curiosity_zephyr_splash/binaries/boot.bin`**, SHA256 **`76AC25F58FCE0FB2094987CBE51C24F8A795E6EE615CE32E67A3C3992DAB079C`**. It is built for the same non-Pro Zephyr loader target and awaits a new physical board test.
+
+| Current backlight revision measurement | Bytes |
+| --- | ---: |
+| Raw bootstrap / `_romsize` | 38,457 |
+| SRAM span / `_sramsize` | 39,492 |
+| Headroom under configured 64 KiB span | 26,044 |
+| Physical SRAM above `_ebss=0x00109A44` | 91,580 |
+| Remainder after assumed 8 KiB stack reserve | 83,388 |
+| Wrapped boot.bin | 38,544 |
+
+ARM verification now rejects any GPIO call for PB14, checks that splash GPIO activity is only PB18 high, and verifies no LCDCFG6 writes. These checks pass for normal startup and forced PLL, LVDS and LCDC timeout paths. Pixel rendering, progress arithmetic, and all 16 mocked SD-loading cases continue to pass. SAM-BA payload and header SHA256 checks also pass. The user subsequently requested a commit in the prior splash commit's style, without a co-author trailer; the source, verification changes and documentation are included. No flashing was performed for this revision.
